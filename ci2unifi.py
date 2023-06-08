@@ -30,7 +30,6 @@ at = atSite(config.atHost, config.atUsername,
             config.atPassword, config.atAPIInterationcode)
 
 # TODO change this to a list so we can loop thorugh them
-# TODO create site overdirves. Need to be able to sync Oak Alley Restaurant Devices in the Oak Alley Unifi site. Currently the Unifi Site is set to sync with the foundation or both.
 ignoreProduct = config.atProductID
 
 # Had to rewrite part of the way that pyunifi.controller did queries

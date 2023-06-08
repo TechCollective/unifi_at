@@ -22,7 +22,7 @@ from pyunifi.controller import Controller
 # config file within the same directory
 import config
 # link to my working library
-from atsite import atSite
+from pyautotask.atsite import atSite
 
 c = Controller(config.UnifiHost, config.UnifiUsername,
                config.UnifiPassword, config.UnifiPort, "v5")

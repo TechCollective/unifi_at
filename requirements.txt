@@ -1,5 +1,5 @@
 config==0.5.1
 macaddress==2.0.2
-pyunifi @ https://github.com/TechCollective/pyunifi@main
+pyunifi @ git+https://github.com/TechCollective/pyunifi
 Requests==2.31.0
-pyautotask @ https://github.com/TechCollective/pyautotask@main
+pyautotask @ git+https://github.com/TechCollective/pyautotask

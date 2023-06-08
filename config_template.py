@@ -1,4 +1,4 @@
-#!/usr/bin/python3.9
+#!/usr/bin/env python
 
 # Unifi
 UnifiUsername = ''
@@ -12,8 +12,8 @@ atPassword = ''
 atAPIInterationcode = ''
 atHost = ''
 
-atCIType4network =   # This is my "Networking Devices" Type
-atCICategory =   # This is my "Unifi Controller Devices" catagory
-atProductID =   # Can get from the URL in Autotask
+atCIType4network = 0    # Network Device type in Autotask
+atCICategory = 0        # This is my "Unifi Controller Devices" catagory
+atProductID = 0         # Can get from the URL in Autotask
 
 unifi_ignore = ("")

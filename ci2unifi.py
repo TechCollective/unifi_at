@@ -21,7 +21,6 @@ import macaddress
 from pyunifi.controller import Controller
 # config file within the same directory
 import config
-# link to my working library
 from pyautotask.atsite import atSite
 
 c = Controller(config.UnifiHost, config.UnifiUsername,
@@ -131,7 +130,6 @@ def process_ci(company):
 								updateUnifiDevice(mac, alias, ci)
 						except ValueError as error:
 							pass
-
 
 def process_sites(unifi_field):
 	company_filter_field = "{'op':'eq','field':'isActive','value': '1'},{'op':'noteq','field':'" + \

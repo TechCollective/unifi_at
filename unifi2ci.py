@@ -27,6 +27,12 @@ from pyunifi.controller import Controller
 #config file within the same directory
 import config
 from pyautotask.atsite import atSite
+import os
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+
+slack_token = config.SLACK_TOKEN
+client = WebClient(token=slack_token)
 
 
 c = Controller(config.UnifiHost, config.UnifiUsername, config.UnifiPassword, config.UnifiPort, "v5")
@@ -208,7 +214,15 @@ def unifi2at():
 
 						if serial is not None:
 							return_value = at.ci_push_by_serialNumber(ci_cat, cid, ci_type, pid, name, serial, udf)
-#								print(at.get_ci_by_serial("serial"))
+# 							try:
+# 								response = client.chat_postMessage(
+# 									channel="D05CT7CR97E", #David S channel with Ava
+# 									text="New item added to UniFi Controller: name - " + name + " serial - " + serial + ". Please let Jeff know what more information would be useful."
+# 								)
+# 							except SlackApiError as e:
+# 								# You will get a SlackApiError if "ok" is False
+# 								assert e.response["error"]    # str like 'invalid_auth', 'channel_not_found'
+# #								print(at.get_ci_by_serial("serial"))
 
 
 #							return_value = at.ci_push_by_serialNumber(ci_cat, cid, ci_type, pid, name, serial, installDate, udf)

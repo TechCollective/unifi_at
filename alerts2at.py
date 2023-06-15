@@ -3,42 +3,6 @@
 # Description:
 # Creates Autotask Tickets for UniFi alerts
 
-# Requirements
-# API User has to have "edit Protected Data" permissions to edit UDFs
-# TODO create an onboarding script
-# Needed to create the following Autotask UDFs for these scripts
-# Companies
-#  Name         			| Type					| Sort Oder	|
-#  UniFi Site ID			| Text (Multi Line)		| 2			| This is where the primary company where the site goes. CIs for UniFi devices will go here.
-#  UniFi Subsite ID			| Text (Multi Line)		| 2			| This is where a seconardy site will go. If you want these CIs to show up as a configured client in a site, put that UniFi ID here
-#
-# Configuration Items
-#  Name						| Type					| Sort Oder
-#  UniFi Alerts Ignore list	| Text (Multi Line)		| 3
-#  UniFi First Seen			| Date					| 2
-#  UniFi Last Seen			| Date					| 2
-#
-# Needed Service Desk Issue Types
-# Issue Type Name: UniFi Alerts
-# All Subissues are associated with the "Monitoring Alert" Queue
-#  Issue Type Name:
-#  Commit Error
-#  Detect Rogue AP
-#  TODO Need to create
-#  Detect Rogue DHCP Server
-#  IPS Alert
-#  Lost Contact
-#  LTE Hard Limit Used
-#  LTE Subscription Unknown
-#  LTE Threshold
-#  LTE Weak Signal
-#  LTE Muliple Alerts
-#  Radar Detected
-#  STP Port Blocking
-#  WAN Transition
-#  ZZZ Unknown Event
-
-
 # TODO Create a report on all site-devices that have entries in the ignroe
 # TODO check for UniFi devices in AT that are not in the UniFi controller and deactivate them.
 # TODO It looks like someone setup a device to the wrong client in Autotask and this confused the script. It was able to create an alert ticket, but not close it because it was on the wrong client.

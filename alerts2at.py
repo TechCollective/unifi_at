@@ -82,6 +82,31 @@ def get_tickets_field_value(name, lable):
                 if picklistValue['label'] == lable:
                     return str(picklistValue['value'])
 
+def get_device_from_alert(alert):
+    mac = None
+    for key in alert:
+        if alert['key'] == "EVT_GW_Lost_Contact":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_GW_CommitError":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_GW_CommitError":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_GW_WANTransition":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_AP_Lost_Contact":
+            mac = alert['ap']
+        elif alert['key'] == "EVT_SW_Lost_Contact":
+            mac = alert['sw']
+        elif alert['key'] == "EVT_SW_StpPortBlocking":
+            mac = alert['sw']
+        elif alert['key'] == "EVT_LTE_Lost_Contact":
+            mac = alert['dev']
+        elif alert['key'] == "EVT_XG_Lost_Contact":
+            mac = alert['xg']
+    if mac:
+        return c.get_device_stat(mac)
+
+
 def check_existing_ticket(m_alert, event_config):
     print(event_config)
     filter_fields = ""

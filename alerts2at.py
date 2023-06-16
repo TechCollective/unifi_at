@@ -175,6 +175,7 @@ def get_event_config(alert_key):
 # app-traffic-rate?start=1686013478558&end=1686099878558&includeUnidentified=false
 
 def check_system_log(site, company):
+
     print("- Checking System Logs")   
     # 1 hour = 1.00 	3,600,000
     furture_time = time.time_ns() // 1000000 - 3600000
@@ -287,50 +288,6 @@ def check_unarchived_alerts(site, company):
                 if reply != []:
                     archive_alert(m_alert.unifi_alert_id)
 
-def check_unarchived_alerts_old(site):
-	alerts = c.get_alerts_unarchived()
-	print(site['desc'])
-	for alert in alerts:
-		if alert['key'] == "EVT_GW_Lost_Contact":
-			lost_contact(alert, 'gw')
-		elif alert['key'] == "EVT_AP_Lost_Contact":
-			lost_contact(alert, 'ap')
-		elif alert['key'] == "EVT_SW_Lost_Contact":
-			lost_contact(alert, 'sw')
-		elif alert['key'] == "EVT_LTE_Lost_Contact":
-			lost_contact(alert, 'dev')
-		elif alert['key'] == "EVT_XG_Lost_Contact":
-			lost_contact(alert, 'xg')
-		elif alert['key'] == "EVT_GW_CommitError":
-			commit_error(alert, 'gw')
-		elif alert['key'] == "EVT_GW_RestartedUnknown": # we run a different script to detect if there are multiple alerts for the same device.
-			archive_alert(alert['_id'])	
-		elif alert['key'] == "EVT_GW_WANTransition": # WAN Failover event
-			wan_transition(alert)
-		elif alert['key'] == "EVT_AP_DetectRogueAP":
-			rouge_ap(alert)
-		elif alert['key'] == "EVT_AP_RadarDetected":
-			radar_detected(alert)
-		elif alert['key'] == "EVT_SW_StpPortBlocking":
-			stp_blocking(alert)
-		elif alert['key'] == "EVT_SW_RestartedUnknown":
-			archive_alert(alert['_id'])	
-		elif alert['key'] == "EVT_LTE_HardLimitUsed":
-			lte_hard_limit_used(alert)
-		elif alert['key'] == "EVT_LTE_HardLimitCutoff":
-			lte_hard_limit_cutoff(alert)
-		elif alert['key'] == "EVT_LTE_Threshold":
-			lte_threshold(alert)
-		elif alert['key'] == "EVT_IPS_IpsAlert":
-			ipsAlert(alert)
-		elif alert['key'] == "EVT_SW_DetectRogueDHCP":
-			rouge_dhcp(alert)
-		elif alert['key'] == "EVT_USP_OutletPowerCycle":
-			outlet_power_cycle(alert)
-		else:
-			unknown_alert(alert)
-
-
 def close_ticket(ticket):
 	# TODO add a note to the ticket	
 
@@ -419,9 +376,10 @@ def main():
                 print(site['desc'] + " doesn't have a UniFi Site ID. Please add " + site['name'] + " to the Autotask Company's UDF field")
             else:
                 print("\n" + site['desc'])
-                check_unarchived_alerts(site, company[0])
+                #check_unarchived_alerts(site, company[0])
+                check_system_log(site, company[0])
                 #check_gateway(site)
-                #check_system_log(site, company[0])
+
                 #TODO Need to figure out what this is
                 #print(check_warnings(site))
                 #clear_fixed_tickets(site, company)

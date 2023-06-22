@@ -16,7 +16,8 @@ import sys
 import time
 from datetime import datetime, timedelta
 import dateutil.parser
-from pyunifi.controller import Controller
+from pyunifi.controller import Controller # TechCollective's feature branch
+#import pyunifi
 #config file within the same directory
 import config
 from pyautotask.atsite import atSite
@@ -108,17 +109,18 @@ def get_device_from_alert(alert):
 
 
 def check_existing_ticket(m_alert, event_config):
-    print(event_config)
-    filter_fields = ""
+    print("              - checking for existing ticket")
 
+    filter_fields = ""
     if hasattr(m_alert, "at_id"):
-#    if m_alert.device_from.at_id:
         filter_fields = at.create_filter("eq", "configurationItemID", str(m_alert.device_from.at_id))
+
     if filter_fields == "":
         filter_fields = at.create_filter("eq", "subIssueType", get_tickets_field_value("subIssueType",event_config['Subissue type']))
     else:
         filter_fields = filter_fields + "," + at.create_filter("eq", "subIssueType", get_tickets_field_value("subIssueType",event_config['Subissue type']))
-    print(filter_fields)
+
+    filter_fields = filter_fields + "," + at.create_filter("eq", "companyID", str(m_alert.at_company_id))
     return at.create_query("tickets", filter_fields)
 
 def create_alert_ticket(m_alert, event_config):
@@ -156,8 +158,8 @@ def create_alert_ticket(m_alert, event_config):
             #'dueDateTime': due_date,
         return at._api_write("Tickets", params)
     else:
+        print("         - Already has a ticket Ticket")
         archive_alert(m_alert.unifi_alert_id)
-
 
 def get_event_config(alert_key):
     event_config = None
@@ -189,54 +191,71 @@ def check_system_log(site, company):
         event_config = None
         create_ticket = True
 
-        print(syslog)
-        sys.exit()
-        m_alert = models.manifold_alert.from_unifi_syslog_dict(syslog)
+        #print(syslog)
 
-        if syslog['key'] == "DEVICE_RECONNECTED_WITH_DOWNLINKS":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "DEVICE_UNREACHABLE_WITH_DOWNLINKS":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "DEVICE_RECONNECTED_SEVERAL_TIMES":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "DEVICE_RECONNECTED":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "DEVICE_UNREACHABLE":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "ISP_HIGH_LATENCY":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "ISP_PACKET_LOSS":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "CLIENT_IP_CONFLICT":
-            print(syslog['key'] + "-" + syslog['message'])
-            print(syslog)
-        elif syslog['key'] == "CLIENT_IP_CONFLICT_BULK":
-            print(syslog['key'] + "-" + syslog['message'])
-            print(syslog)
-        elif syslog['key'] == "DEVICE_DISCOVERED":
-            #print(syslog['key'] + "-" + syslog['message'])
-            a=True
-        elif syslog['key'] == "DEVICE_ADOPTED":
-            # print(syslog['key'] + "-" + syslog['message'])
-            a = True
-        elif syslog['key'] == "PORT_TRANSMISSION_ERRORS":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "NETWORK_FAILED_OVER_TO_BACKUP_LTE":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "RADIUS_SERVER_ISSUE":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "NETWORK_RETURNED_FROM_BACKUP_WAN":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "NETWORK_WAN_FAILED_MULTIPLE_TIMES":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "ULTE_WARNING_LIMIT_EXCEEDED":
-            print(syslog['key'] + "-" + syslog['message'])
-        elif syslog['key'] == "NETWORK_WAN_FAILED":
-            print(syslog['key'] + "-" + syslog['message'])
-        else:
-            print(syslog['key'])
+        m_alert = models.manifold_alert.from_unifi_syslog_dict(syslog)
+        print("     - " + m_alert.unifi_alert_key)
+        
+        if create_ticket:
+            if syslog['key'] == "DEVICE_DISCOVERED":
+                print("          - Device Discovered. Ignoring")
+                create_ticket = False
+        
+        
+        if create_ticket:
+            if m_alert.alert_time < datetime.today() - timedelta(days=1):
+                print("          - Alert is old. Ignoring")
+                create_ticket = False
+
+        if create_ticket:
             print(syslog)
             sys.exit()
+
+        #sys.exit()
+        # if syslog['key'] == "DEVICE_RECONNECTED_WITH_DOWNLINKS":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "DEVICE_UNREACHABLE_WITH_DOWNLINKS":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "DEVICE_RECONNECTED_SEVERAL_TIMES":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "DEVICE_RECONNECTED":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "DEVICE_UNREACHABLE":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "ISP_HIGH_LATENCY":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "ISP_PACKET_LOSS":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "CLIENT_IP_CONFLICT":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        #     print(syslog)
+        # elif syslog['key'] == "CLIENT_IP_CONFLICT_BULK":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        #     print(syslog)
+        # elif syslog['key'] == "DEVICE_DISCOVERED":
+        #     #print(syslog['key'] + "-" + syslog['message'])
+        #     a=True
+        # elif syslog['key'] == "DEVICE_ADOPTED":
+        #     # print(syslog['key'] + "-" + syslog['message'])
+        #     a = True
+        # elif syslog['key'] == "PORT_TRANSMISSION_ERRORS":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "NETWORK_FAILED_OVER_TO_BACKUP_LTE":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "RADIUS_SERVER_ISSUE":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "NETWORK_RETURNED_FROM_BACKUP_WAN":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "NETWORK_WAN_FAILED_MULTIPLE_TIMES":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "ULTE_WARNING_LIMIT_EXCEEDED":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # elif syslog['key'] == "NETWORK_WAN_FAILED":
+        #     print(syslog['key'] + "-" + syslog['message'])
+        # else:
+        #     print(syslog['key'])
+        #     print(syslog)
+        #     sys.exit()
         
 def check_unarchived_alerts(site, company):
     print("- Checking unarchvied alerts")
@@ -376,8 +395,8 @@ def main():
                 print(site['desc'] + " doesn't have a UniFi Site ID. Please add " + site['name'] + " to the Autotask Company's UDF field")
             else:
                 print("\n" + site['desc'])
-                #check_unarchived_alerts(site, company[0])
-                check_system_log(site, company[0])
+                check_unarchived_alerts(site, company[0])
+                #check_system_log(site, company[0])
                 #check_gateway(site)
 
                 #TODO Need to figure out what this is
@@ -386,3 +405,5 @@ def main():
                 #TODO need to figure out what is creating Toast popups on the web interface of the unifi controller
                 #time.sleep(10)
 main()
+
+#print(c.site_get())

@@ -108,7 +108,7 @@ class manifold_alert:
     @classmethod
     def from_unifi_syslog_dict(cls, data):
         return cls(
-            datetime.fromtimestamp(data['parameters']['timestamp']/1000), 
+            datetime.fromtimestamp(data['timestamp']/1000), 
             data['message'],
             unifi_alert_id = data['id'],
             unifi_alert_key = data['key']

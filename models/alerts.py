@@ -10,6 +10,7 @@ class Alerts:
         'message': 'str',
         'device_from': 'manifold_device',
         'device_extra': 'list[manifold_device]',
+        'device_db': 'Device',
         'unifi_alert_id': 'str',
         'unifi_alert_key': 'str',
         'at_company_id': 'str'
@@ -20,15 +21,18 @@ class Alerts:
        'message': 'msg',
        'device_from': 'mainfold_device',
        'device_list': 'mainfold_device',
+       'device_db': 'db_obj',
        'unifi_alert_id': '_id',
        'unifi_alert_key': 'key',
        'at_company_id': 'id'
    }
-    def __init__(self, alert_time=None, message=None, device_from=None, device_extra=None, unifi_alert_id=None, unifi_alert_key=None, at_company_id=None ):
+    def __init__(self, alert_time=None, message=None, mac=None, device_from=None, device_extra=None, device_db=None, unifi_alert_id=None, unifi_alert_key=None, at_company_id=None ):
         self._alert_time = None
         self._message = None
+        self._mac = None
         self._device_from = None
         self._device_extra = None
+        self._device_db = None
         self._unifi_alert_id = None
         self._unifi_alert_key = None
         self._at_company_id = None
@@ -37,10 +41,14 @@ class Alerts:
             self.alert_time = alert_time
         if message is not None:
             self.message = message
+        if mac is not None:
+            self.mac = mac
         if device_from is not None:
             self.device_from = device_from
         if device_extra is not None:
             self.device_extra = device_extra
+        if device_db is not None:
+            self.device_db = device_db
         if unifi_alert_id is not None:
             self.unifi_alert_id = unifi_alert_id
         if unifi_alert_key is not None:
@@ -65,6 +73,14 @@ class Alerts:
         self._message = message
 
     @property
+    def mac(self):
+        return self._mac
+    
+    @mac.setter
+    def mac(self, mac):
+        self._mac = mac
+
+    @property
     def device_from(self):
         return self._device_from
     
@@ -79,6 +95,14 @@ class Alerts:
     @device_extra.setter
     def device_extra(self, device_extra):
         self._device_extra = device_extra
+
+    @property
+    def device_db(self):
+        return self._device_db
+    
+    @device_db.setter
+    def device_db(self, device_db):
+        self._device_db = device_db
 
     @property
     def unifi_alert_id(self):
@@ -135,9 +159,9 @@ class Alerts:
                 ))
             else:
                 result[attr] = value
-        if issubclass(manifold_alert, dict):
-            for key, value in self.items():
-                result[key] = value
+        # if issubclass(manifold_alert, dict):
+        #     for key, value in self.items():
+        #         result[key] = value
 
         return result
 

@@ -28,11 +28,11 @@ from pyunifi.controller import Controller
 import config
 from pyautotask.atsite import atSite
 import os
-from slack_sdk import WebClient
-from slack_sdk.errors import SlackApiError
+#from slack_sdk import WebClient
+#from slack_sdk.errors import SlackApiError
 
-slack_token = config.SLACK_TOKEN
-client = WebClient(token=slack_token)
+#slack_token = config.SLACK_TOKEN
+#client = WebClient(token=slack_token)
 
 
 c = Controller(config.UnifiHost, config.UnifiUsername, config.UnifiPassword, config.UnifiPort, "v5")

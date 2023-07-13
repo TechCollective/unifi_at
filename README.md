@@ -15,6 +15,9 @@ alerts2at.py - Takes unarchive alerts and creates tickets within Autotask.
 
 slack_test.py - Ignore for now. I'm working on integrating alerts to slack.
 
-
-
 File unifi_alerts_config.csv - It's used to define that should happen with an alert. The "Events" come from UniFi. Those are all the ones I know about. The rest are for Autotask. If you have those Issue Type, Queue's etc, within Autotask, it will use those to create a ticket.
+
+
+
+Feature wishlist
+# sync admins - will push admins from a group in Jumpcloud or someplace

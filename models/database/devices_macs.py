@@ -3,9 +3,11 @@ from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
-class Companies(Base):
-    __tablename__ = 'companies'
+class Devices_Macs(Base):
+    __tablename__ = 'devices_macs'
     primary_key: Mapped[int] = mapped_column(primary_key=True)
-    company_name = Column(String)
-    company_number = Column(String)
+    mac_addresses = Column(String)
+    device_key: Mapped[int] = mapped_column(ForeignKey("devices.primary_key"))
+    device: Mapped["Devices"] = relationship(back_populates="macs")
+
 

@@ -9,6 +9,7 @@ class Link_Autotask_Devices(Base):
     device_key: Mapped[int] = mapped_column(ForeignKey("devices.primary_key"))
     autotask_tenant_key: Mapped[int] = mapped_column(ForeignKey("autotask_tenants.primary_key"))
     company_key:Mapped[int] = mapped_column(ForeignKey("companies.primary_key"))
+    autotask_ci_id = Column(Integer)
     
 
 

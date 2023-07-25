@@ -1,0 +1,17 @@
+example Value ap_model
+
+{
+    'msg': 'XX[00:00:00:00:00:00] was disconnected',   # XX can be GW, AP, SW, DEV, XG. Inside the [] is the mac of that device
+    'ap_model': 'string', 
+    'ap_displayName': 'sstring', 
+    'subsystem': 'wlan', 
+    'KEY': 'd0:21:f9:86:ab:e5',  # KEY can be gw, ap, sw, dev, xg
+    'archived': False, 
+    'ap_name': 'string', 
+    'time': 1689951443883, 
+    'datetime': '2023-07-21T14:57:23Z', 
+    'site_id': 'string',  # what the controller has for the site ID
+    '_id': 'string', 
+    'is_negative': True, 
+    'key': 'string' # string can be EVT_GW_Lost_Contact, EVT_GW_CommitError, EVT_GW_WANTransition, EVT_AP_Lost_Contact, EVT_SW_Lost_Contact, EVT_SW_StpPortBlocking, EVT_LTE_Lost_Contact, EVT_XG_Lost_Contact
+}

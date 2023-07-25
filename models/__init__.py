@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 from models.alerts import Alerts
+from models.autotask_ticket_params import Autotask_Ticket_Params
 
 from models.database.base import Base
 

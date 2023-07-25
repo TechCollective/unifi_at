@@ -5,6 +5,7 @@ import csv
 import sys
 import time
 from datetime import datetime, timedelta
+import pytz
 #from pyunifi.controller import Controller # TechCollective's feature branch
 import pyunifi
 import pyautotask
@@ -38,6 +39,11 @@ tickets_entity_information_fields = at._api_read("Tickets/entityInformation/fiel
 # TODO Need to figure out how to trigger a sync to subchannels when a change is made. Maybe add a  last modified field to companies. If last modified is greater than last_full_sync on subchannel, sync that company. Or something
 
 # TODO Check Autotask contract. Unifi Site Description get assigned from Autotask "companyNumber - companyName". If they don't have a contract, they get the prefix name in UniFi with zz-$
+
+# TODO When syning Autotask things, we should probably change the Company filter to only pull cutomers and not vendors
+
+# TODO Move this to a config, maybe in the database
+sync_wait = 24
 def main():
     update_last_sync()
     # TODO Sync within Autotask. I'm not sure if rmmDeviceAuditHostname syncs back to referenceTitle, if not, we should. Maybe sync "rmmDeviceAuditDescription" to description
@@ -45,7 +51,6 @@ def main():
     unifi_alerts_all()
 
     #get_autotask_tickets_entity_information()
-    
 
 def sync_channels(channel, db_obj, channel_sync_device=None):
     if channel.__class__.__name__ != "UniFi_Controllers": 
@@ -55,6 +60,7 @@ def sync_channels(channel, db_obj, channel_sync_device=None):
             c.site_id = unifi_site.name
             if db_obj.__class__.__name__ == "Devices":
                 # TODO instead of for looping though all the site's clients, we should just sync them and for loop though link_unifi_client_devices
+                # TODO since it's possible to have multi Mac addresses for the different clients (docking stations, adaptors, etc) we need to deal with that here.
                 unifi_clients = c.get_clients()
                 for unifi_client in unifi_clients:
                     link_unifi_device = session.query( Link_UniFi_Devices ).filter_by( device_key=db_obj.primary_key ).first()
@@ -73,31 +79,75 @@ def sync_channels(channel, db_obj, channel_sync_device=None):
                                     if unifi_name != unifi_client['name']:
                                         c.set_client_alias(mac,unifi_name)
                                 else:
-                                    c.set_client_alias(mac,unifi_name)
+                                    try:
+                                        c.set_client_alias(mac,unifi_name)
+                                    except:
+                                        print("Ran into an issue")
     if channel.__class__.__name__ != "Autotask_Tenants": 
-        if db_obj.__class__.__name__ == "Devices":
-            # pull device from autotask
-            # check diffs
-            print("Send device to Autotask")
-            print(db_obj)
-            sys.exit()
-            params = {}
-            params['referenceTitle'] = channel_sync_device.name
-            params['serialNumber '] = channel_sync_device.serial
-            # TODO add UDFs
+        link_company = session.query( Link_Autotask_Companies ).filter_by( companies_key=db_obj.company_key ).first()
+        if link_company:
+            if db_obj.__class__.__name__ == "Devices":
+                # TODO change to pull by serial and Company ID
+                autotask_ci_pull = at.get_ci_by_serial(db_obj.serial)
+                autotask_ci = None
+                if autotask_ci_pull: autotask_ci = autotask_ci_pull[0]
+                if autotask_ci:
+                    # check diffs
+                    params = {}
+                    if hasattr(channel_sync_device, "name"):
+                        if autotask_ci['referenceTitle'] != channel_sync_device.name:
+                            params['referenceTitle'] = channel_sync_device.name
+                    if db_obj.manufacturer == 'Ubiquiti':
+                            # TODO this should be configureable
+                            ci_category = session.query( Autotask_CI_Catagories ).filter_by( name="Unifi Controller Devices").first()
+                            if autotask_ci['configurationItemCategoryID'] != ci_category.id:
+                                params['configurationItemCategoryID'] = ci_category.id
+                            # TODO this should be configureable
+                            ci_type = session.query( Autotask_CI_Types ).filter_by( label="Network Device").first()
+                            if autotask_ci['configurationItemType'] != ci_type.value:
+                                params['configurationItemType'] = ci_type.value
+                            if autotask_ci['companyID'] != link_company.id:
+                                params['companyID'] = link_company.id
+                            # TODO need to fix this. There is a "UniFi Generic Product" is AT. The Product ID is in the database, but is missing it's name. I'm just going to make this static for now.
+                            #ci_product = session.query( Autotask_Products ).filter_by( )
+                            #if autotask_ci['productID'] != 29683054:
+                            #    params['productID'] = 29683054
+                    else:
+                        print("Was not a UniFi device. Stopping")
+                        sys.exit()
+                    if params:
+                        params['serialNumber'] = db_obj.serial
+                        params['productID'] = 29683054
+                        # TODO Need to update ci_push to not always expect a udf
+                        params['userDefinedFields'] = None
+                        print("Updating CI in Autotask")
+                        at.ci_push(params)
+                else:
+                    # TODO This is the point where to are adding devices to Autotask. If we want to setup alerts, this is where we would do it
+                    params = {}
+                    if hasattr(channel_sync_device, "name"):
+                        params['referenceTitle'] = channel_sync_device.name
+                    if hasattr(channel_sync_device, "serial"):
+                        params['serialNumber'] = channel_sync_device.serial
+                    # TODO add UDFs
 
-            if db_obj.manufacturer == 'Ubiquiti':
-                ci_category = session.query( Autotask_CI_Catagories ).filter_by( name="Unifi Controller Devices")
-                params['configurationItemCategoryID '] = ci_category.id
-                params['configurationItemType'] = ci_type.value
-                ci_type = session.query( Autotask_CI_Types ).filter_by( label="Network Device")
-                params['companyID'] = channel_sync_device.company_key
-                #ci_product = session.query( Autotask_Products ).filter_by( )
-                params['productID'] = 0
-            else:
-                print("Was not a UniFi device. Stopping")
-                sys.exit()
-            at.ci_push(params)
+                    if db_obj.manufacturer == 'Ubiquiti':
+                        ci_category = session.query( Autotask_CI_Catagories ).filter_by( name="Unifi Controller Devices").first()
+                        params['configurationItemCategoryID'] = ci_category.id
+                        ci_type = session.query( Autotask_CI_Types ).filter_by( label="Network Device").first()
+                        params['configurationItemType'] = ci_type.value
+                        params['companyID'] = link_company.id
+                        params['installDate'] = str(db_obj.install_date.astimezone(pytz.UTC))
+                        # TODO need to fix this. There is a "UniFi Generic Product" is AT. The Product ID is in the database, but is missing it's name. I'm just going to make this static for now.
+                        #ci_product = session.query( Autotask_Products ).filter_by( )
+                        params['productID'] = "29683054"
+                        # TODO Need to update ci_push to not always expect a udf
+                        params['userDefinedFields'] = None
+                    else:
+                        print("Was not a UniFi device. Stopping")
+                        sys.exit()
+                    print("add device")
+                    at.ci_push(params)
 
 def update_last_sync():
     update_autotask_last_sync()
@@ -108,7 +158,7 @@ def update_unifi_last_sync():
     tenant = session.query( UniFi_Controllers ).filter_by(host=config.UnifiHost).first()
     if tenant:
         # TODO currently set to 24 hours, but that should be configurable
-        if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > 24:
+        if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > sync_wait:
             _sync_unifi_sites(tenant)
             sync_unifi_devices()
             sync_unifi_clients()
@@ -155,12 +205,43 @@ def unifi_site_down(unifi_site, ticket_params):
         unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
         ticket_params['description'] += "\nUniFi Controller: " + unifi_controller_query.host
 
+def check_unifi_site_for_autotask_contract(site):
+    # TODO Need to make the SLA configuratble where the user can declare which contracts trigger what alerts
+    if (site.desc).startswith("zz-"):
+        return False
+    else:
+        return True
+
+def unifi_lost_contact(site,device):
+    print("     - " + site.desc + " Lost Contact")
+    # TODO Might need to actually look at the device to assoicate it with the 100% right event
+    params = create_ticket_params_from_unifi_warning("EVT_AP_Lost_Contact")
+    linked_site = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
+    autotask_linked_company = session.query( Link_Autotask_Companies ).filter_by(companies_key=linked_site.companies_key).first()
+    params.companyID = autotask_linked_company.id
+    devices_mac = session.query( Devices_Macs ).filter_by( mac_addresses=device['mac'] ).all()
+    for device_mac in devices_mac:
+        device = session.query( Devices ).filter_by(company_key=linked_site.companies_key, primary_key=device_mac.device_key ).first()
+        if device:
+            linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device.primary_key,company_key=linked_site.companies_key).first()
+            params.configurationItemID = linked_autotask_device.autotask_ci_id
+            break
+    existing_ticket = check_autotask_existing_warning_ticket(params)
+    if existing_ticket:
+        # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
+        pass
+    else:
+        print("    - Create the Ticket")
+        at._api_write("Tickets", params.to_dict())
+
 def unifi_device_status():
+    print(" - Checking for Devices Down")
     # TODO If on SLA contract, send ticket for all off line devices. If on UniFi contract, send ticket only for site down
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
     sites_query = session.query(  UniFi_Sites )
     for site in sites_query:
+        print("   - " + site.desc)
         unifi_site_query = session.query( UniFi_Sites ).filter_by(name=site.name, controller_key=unifi_controller_query.primary_key ).first()
         link_unifi_site = session.query( Link_UniFi_Companies ).filter_by( unifi_sites_key=unifi_site_query.primary_key ).first()
         company_key = 0
@@ -185,12 +266,11 @@ def unifi_device_status():
                     ticket_params['companyID'] = link_autotask_company.id
                 unifi_site_down(site, ticket_params)
             else:
-                pass
-                # if sla and devices_down > 0:
-                    #for device in devices:
-                        #if device['adopted'] == True:
-                            # If no 'Lost_Contact' ticket for device
-                                # create 'Lost_Contact' ticket
+                if devices_down > 0:
+                    if check_unifi_site_for_autotask_contract(site):
+                        for device in unifi_devices:
+                            if device['state'] == 0 and device['adopted'] == True:
+                                    unifi_lost_contact(site,device)
 
 def archive_unifi_alert(alert_id):
 	params = {'_id': alert_id}
@@ -249,7 +329,8 @@ def create_unifi_alert_ticket(m_alert, alert_config):
     # else:
     #     archive_alert(m_alert.unifi_alert_id)
 
-def check_unifi_alert_for_relevants(m_alert, site):
+# OLD
+def check_unifi_alert_for_relevants_old(m_alert, site):
     if m_alert.alert_time < datetime.today() - timedelta(days=1):
         print("          - Alert is old. Clearing alert")
         archive_unifi_alert(m_alert.unifi_alert_id)
@@ -272,6 +353,26 @@ def check_unifi_alert_for_relevants(m_alert, site):
     print(m_alert.to_str())
     
     sys.exit()
+
+def check_unifi_alert_for_relevants(alert, site):
+    alert_device_mac = get_unifi_alert_device(alert)
+    alert_time = datetime.fromtimestamp(alert['time']/1000)
+    if alert_time < datetime.today() - timedelta(days=1):
+        print("          - Alert is old. Clearing alert")
+        archive_unifi_alert(alert['_id'])
+        return False
+    
+    if "Lost_Contact" in alert['key']:
+        if c.get_device_stat(alert_device_mac)['state'] == 1:
+            print("          - Device state is active. Clearing alert.")
+            archive_unifi_alert(alert['_id'])
+            return False
+    if "EVT_GW_WANTransition" in  alert['key']:
+        print(site.desc)
+        gateway = ((((alert['msg']).split()[0]).replace('Gateway','')).replace('[', '')).replace(']','')
+        if c.get_device_stat(gateway)['state'] == 1:
+            archive_unifi_alert(alert['_id'])
+            return False
 
 def get_unifi_alert_device(alert):
     mac = None
@@ -296,39 +397,116 @@ def get_unifi_alert_device(alert):
             mac = alert['xg']
 
     if mac:
+        return mac
+        #mac_db = session.query( Devices_Macs ).filter_by(mac_addresses=mac ).first()
+        #device_db = session.query( Devices ).filter_by(primary_key=mac_db.device_key)
+        #return device_db, mac
+
+def get_autotask_ci_from_unifi_alert(alert):
+    mac = None
+    for key in alert:
+        if alert['key'] == "EVT_GW_Lost_Contact":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_GW_CommitError":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_GW_WANTransition":
+            mac = alert['gw']
+        elif alert['key'] == "EVT_AP_Lost_Contact":
+            mac = alert['ap']
+        elif alert['key'] == "EVT_SW_Lost_Contact":
+            mac = alert['sw']
+        elif alert['key'] == "EVT_SW_StpPortBlocking":
+            mac = alert['sw']
+        elif alert['key'] == "EVT_LTE_Lost_Contact":
+            mac = alert['dev']
+        elif alert['key'] == "EVT_XG_Lost_Contact":
+            mac = alert['xg']
+
+    if mac:
         mac_db = session.query( Devices_Macs ).filter_by(mac_addresses=mac ).first()
-        device_db = session.query( Devices ).filter_by(primary_key=mac_db.device_key)
-        return device_db, mac
+        if hasattr(mac_db, "primary_key"):
+            link_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=mac_db.device_key).first()
+            if hasattr(link_autotask_device, "primary_key"):
+                return link_autotask_device.autotask_ci_id
+            else:    
+                print("Missing device")
+                sys.exit()
+        else:
+            # TODO need to add a fuction to add the deice to autotask if it's missing
+            print("---------------------> Need to add device")
+            print(alert)
+            print(mac)
+            sys.exit()
+
+def create_ticket_params_from_unifi_alert(alert):
+    alert_config = get_unifi_alert_config(alert['key'])
+    if alert_config is None:
+        print("          - No config for this alert. Skipping alert.")
+        sys.exit()
+    if alert_config['Create Ticket']:
+        params = Autotask_Ticket_Params()
+        params.title = alert_config['Ticket Title']
+        params.issueType = get_autotask_tickets_field_value("issueType", alert_config['Issue type'])
+        params.subIssueType = get_autotask_tickets_field_value("subIssueType", alert_config['Subissue type'])
+        params.status = get_autotask_tickets_field_value("status", 'New')
+        params.queueID = get_autotask_tickets_field_value("queueID", alert_config['Queue'])
+        params.source = get_autotask_tickets_field_value("source", 'Monitoring Alert')
+        alert_time = datetime.fromtimestamp(alert['time']/1000).strftime("%Y-%m-%d, %H:%M")
+        params.configurationItemID = get_autotask_ci_from_unifi_alert(alert)
+        params.description = 'Message from the UniFi Controller is: ' + alert_time + " " + alert['msg']
+        return params
+
+def create_ticket_params_from_unifi_warning(key):
+    alert_config = get_unifi_alert_config(key)
+    if alert_config is None:
+        print("          - No config for this alert. Skipping alert.")
+        sys.exit()
+    if alert_config['Create Ticket']:
+        params = Autotask_Ticket_Params()
+        params.title = alert_config['Ticket Title']
+        params.issueType = get_autotask_tickets_field_value("issueType", alert_config['Issue type'])
+        params.subIssueType = get_autotask_tickets_field_value("subIssueType", alert_config['Subissue type'])
+        params.status = get_autotask_tickets_field_value("status", 'New')
+        params.queueID = get_autotask_tickets_field_value("queueID", alert_config['Queue'])
+        params.source = get_autotask_tickets_field_value("source", 'Monitoring Alert')
+        params.priority = get_autotask_tickets_field_value("priority", "Medium" )
+        params.description = alert_config['Ticket Description']
+        return params
 
 def unifi_alerts():
-    print(" - Processing UniFi 'Alerts/Alarms")
+    print(" - Processing UniFi 'Alerts/Alarms'")
     # TODO Currently we only grab unarchived events, then archvie the event after to create a ticket. I would like to process all events based on date instead.
     # TODO Process unarchvied events
     # TODO Check for multiple events in the same day.
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
-    sites_query = session.query(  UniFi_Sites )
-    for site in sites_query:
-        unifi_site_query = session.query( UniFi_Sites ).filter_by(name=site.name, controller_key=unifi_controller_query.primary_key ).first()
-        link_unifi_site = session.query( Link_UniFi_Companies ).filter_by( unifi_sites_key=unifi_site_query.primary_key ).first()
-        
+
+    link_unifi_sites = session.query( Link_UniFi_Companies )
+    for linked_site in link_unifi_sites:
+        site = session.query(  UniFi_Sites ).filter_by(primary_key=linked_site.unifi_sites_key).first()
+        print("   - " + site.desc)
         company_key = 0
-        if hasattr(link_unifi_site, "primary_key"): 
-            company_key = link_unifi_site.companies_key
+        if hasattr(linked_site, "primary_key"): 
+            company_key = linked_site.companies_key
             link_autotask_company = session.query( Link_Autotask_Companies ).filter_by( companies_key=company_key).first()
             if hasattr(link_autotask_company, 'primary_key'):
                 c.site_id = site.name
                 alerts = c.get_alerts_unarchived()
                 for alert in alerts:
-                    m_alert = Alerts.from_unifi_dict(alert)
-                    m_alert.at_company_id = link_autotask_company.id
-                    m_alert.device_db, m_alert.mac = get_unifi_alert_device(alert)
-                    alert_config = get_unifi_alert_config(m_alert.unifi_alert_key)
-                    if alert_config is None:
-                        print("          - No config for this alert. Skipping alert.")
-                        sys.exit()
-                    if alert_config['Create Ticket']:
-                        if check_unifi_alert_for_relevants(m_alert, site):
+                    params = create_ticket_params_from_unifi_alert(alert)
+                    if params:
+                        params.companyID = link_autotask_company.id
+
+                    #m_alert = Alerts.from_unifi_dict(alert)
+                    #m_alert.at_company_id = link_autotask_company.id
+                    #m_alert.device_db, m_alert.mac = get_unifi_alert_device(alert)
+                    #alert_config = get_unifi_alert_config(m_alert.unifi_alert_key)
+                    #if alert_config is None:
+                    #    print("          - No config for this alert. Skipping alert.")
+                    #    sys.exit()
+                    #if alert_config['Create Ticket']:
+                    
+                        if check_unifi_alert_for_relevants(alert, site):
                             reply = create_unifi_alert_ticket(m_alert, alert_config)
                             # TODO check the reply and respond to errors
                             sys.exit()
@@ -402,6 +580,52 @@ def unifi_system_logs():
             print(syslog)
             sys.exit()
 
+def unifi_warning_has_wlan_overrides(site,warning):
+    key = "has_wlan_overrides"
+    alert_config = get_unifi_alert_config(key)
+    #ticket_params = {}
+    print("    - " + site.desc + " " + key + " " + str(warning))
+    for device in c.get_aps():
+        if 'wlan_overrides' in device:
+            print(device['name'] + " " + str(device['wlan_overrides']))
+    sys.exit()
+
+def check_autotask_existing_warning_ticket(params):
+    complete = get_autotask_tickets_field_value("status", "Complete")
+
+    filter_fields = at.create_filter("eq", "companyID", str(params.companyID))
+    filter_fields = filter_fields + "," + at.create_filter("noteq", "status", str(complete) )
+    #filter_fields = filter_fields + "," + at.create_filter("eq", "issueType", str(params.issueType ))
+    filter_fields = filter_fields + "," + at.create_filter("eq", "subIssueType", str(params.subIssueType ))
+    if params.configurationItemID != None:
+        filter_fields = filter_fields + "," + at.create_filter("eq","configurationItemID", str(params.configurationItemID ))
+    existing_ticket = at.create_query("tickets", filter_fields)
+    if existing_ticket:
+        return existing_ticket
+    else:
+        return None
+
+def unifi_lte_subscription_check_required_for(site, key, warning):
+    print("     - " + site.desc + " " + key + " " + str(warning))
+    params = create_ticket_params_from_unifi_warning(key)
+    linked_site = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
+    autotask_linked_company = session.query( Link_Autotask_Companies ).filter_by(companies_key=linked_site.companies_key).first()
+    params.companyID = autotask_linked_company.id
+    devices_mac = session.query( Devices_Macs ).filter_by(mac_addresses=warning[0]['mac']).all()
+    for device_mac in devices_mac:
+        device = session.query( Devices ).filter_by(company_key=linked_site.companies_key, primary_key=device_mac.device_key ).first()
+        if device:
+            linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device.primary_key,company_key=linked_site.companies_key).first()
+            params.configurationItemID = linked_autotask_device.autotask_ci_id
+            break
+    
+    existing_ticket = check_autotask_existing_warning_ticket(params)
+    if existing_ticket:
+        # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
+        pass
+    else:
+        print("    - Create the Ticket")
+        at._api_write("Tickets", params.to_dict())
 
 # TODO Move to pyunifi
 def unifi_widget_warnings():
@@ -409,89 +633,97 @@ def unifi_widget_warnings():
 
 # This could probably run once a day. Maybe once a week
 def check_unifi_warnings():
+    # TODO should only run once a day
     print(" - Checking 'warnings'")
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
     sites_query = session.query(  UniFi_Sites )
     for site in sites_query:
+        print("   - Site: " + site.desc)
         c.site_id = site.name
-        warnings_list = unifi_widget_warnings()
-        for warnings in warnings_list:
-            for key, warning in warnings.items():
-                if key == 'has_upgradable_devices':
-                    if warning == True:
-                        # TODO Need to find the device and create a ticket based with that device as a CI.
-                        # TODO Maybe check if there is a schedule and autotmaticly put it in the schedule
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                # TODO Make active once we have an ignor list
-                if key == 'has_wlan_overrides':
-                    if warning == True:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        for device in c.get_aps():
-                            if 'wlan_overrides' in device:
-                                print(device['name'] + " " + str(device['wlan_overrides']))
-                        sys.exit()
-
-
-                if key == 'firmware_last_changed':
-                    # This just gives a date. Not sure how useful this is.
-                    pass
-                if key == 'last_controller_update_query':
-                    # This just gives a date. Not sure how useful this is.
-                    pass
-                if key == 'last_controller_update_query_status':
-                    # This just gives us an 'ok' seems like it for the whole controller, so we probably only need to check it once.
-                    pass
-                if key == 'last_firmware_update_query':
-                    # This just gives a date. Not sure how useful this is.
-                    pass
-                if key == 'last_firmware_update_query_status':
-                    # Returns 'ok'. Not sure this is useful
-                    pass
-                if key == 'unsupported_device_count':
-                    if warning > 0:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'eol_device_count':
-                    if warning > 0:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        unifi_devices = c.get_aps()
-                        for unifi_device in unifi_devices:
-                            if unifi_device['model_in_eol']:
-                                print("      - " + site.desc + " " + unifi_device['name'] + " - " + unifi_device['mac'] + " - " + str(unifi_device['model_in_eol']))
-                                sys.exit()
-                if key == 'lts_device_count':
-                    if warning > 0:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'lte_subscription_past_due_for':
-                    if warning != []:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'lte_subscription_canceled_for':
-                    if warning != []:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'lte_subscription_check_required_for':
-                    if warning != []:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'controller_low_disk_space':
-                    # Probably only need to do this once for everyone
-                    if warning:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'request_analytics_approvement':
-                    # No idea what this is
-                    if warning:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        sys.exit()
-                if key == 'mdns_networks_limit':
-                    if warning['exceeded']:
-                        print("    - " + site.desc + " " + key + " " + str(warning))
-                        
-
+        link_unifi_company = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
+        if hasattr(link_unifi_company, "companies_key"):
+            link_autotask_companies = session.query( Link_Autotask_Companies ).filter_by(companies_key=link_unifi_company.companies_key)
+            params = Autotask_Ticket_Params()
+            params.companyID = Link_Autotask_Companies.id
+            warnings_list = unifi_widget_warnings()
+            for warnings in warnings_list:
+                for key, warning in warnings.items():
+                    if key == 'has_upgradable_devices':
+                        if warning == True:
+                            # TODO Need to find the device and create a ticket based with that device as a CI.
+                            # TODO Maybe check if there is a schedule and autotmaticly put it in the schedule
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    # TODO Make active once we have an ignor list
+                    if key == 'has_wlan_overrides':
+                        if warning == True:
+                            params.title = "UniFi Alert: Device has WLAN Overrides"
+                            unifi_devices = c.get_aps()
+                            for unifi_device in unifi_devices:
+                                if 'wlan_overrides' in unifi_device:
+                                    # TODO Create Ticket for thsi override
+                                    print("      - has wlan overrides")
+                                    print("        - " + site.desc + " " + unifi_device['name'] + " - " + unifi_device['mac'] + " - " + str(unifi_device['model_in_eol']))
+                                    print("        - TODO Create fuction to create ticket")
+                            #unifi_warning_has_wlan_overrides(site,warning)
+                    if key == 'firmware_last_changed':
+                        # This just gives a date. Not sure how useful this is.
+                        pass
+                    if key == 'last_controller_update_query':
+                        # This just gives a date. Not sure how useful this is.
+                        pass
+                    if key == 'last_controller_update_query_status':
+                        # This just gives us an 'ok' seems like it for the whole controller, so we probably only need to check it once.
+                        pass
+                    if key == 'last_firmware_update_query':
+                        # This just gives a date. Not sure how useful this is.
+                        pass
+                    if key == 'last_firmware_update_query_status':
+                        # Returns 'ok'. Not sure this is useful
+                        pass
+                    if key == 'unsupported_device_count':
+                        if warning > 0:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'eol_device_count':
+                        if warning > 0:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            unifi_devices = c.get_aps()
+                            for unifi_device in unifi_devices:
+                                if unifi_device['model_in_eol']:
+                                    print("      - " + site.desc + " " + unifi_device['name'] + " - " + unifi_device['mac'] + " - " + str(unifi_device['model_in_eol']))
+                                    print("      - TODO Create fuction to create ticket")
+                    if key == 'lts_device_count':
+                        if warning > 0:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'lte_subscription_past_due_for':
+                        if warning != []:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'lte_subscription_canceled_for':
+                        if warning != []:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'lte_subscription_check_required_for':
+                        if warning != []:
+                            unifi_lte_subscription_check_required_for(site, key, warning)
+                    if key == 'controller_low_disk_space':
+                        # Probably only need to do this once for everyone
+                        if warning:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'request_analytics_approvement':
+                        # No idea what this is
+                        if warning:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                    if key == 'mdns_networks_limit':
+                        if warning['exceeded']:
+                            print("    - " + site.desc + " " + key + " " + str(warning))
+                            sys.exit()
+                            
 def unifi_toast():
     print("TODO Findout what creates the UI's 'Toast' and create tickets based on those")
 
@@ -521,6 +753,7 @@ def unifi_alerts_all():
     check_unifi_warnings()
     #unifi_toast()
     #unifi_tickets_cleanup()
+    # TODO Check for alerts/alams happening multiple times within a given time period
     # TODO month check for lost conection devices for non-sla cusomters. Maybe it sends them an email instead of creating a ticket
 
 def _sync_unifi_sites(tenant=None):
@@ -592,17 +825,24 @@ def sync_unifi_devices():
     print(" - Syncing UniFi Devices")
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
-    sites_query = session.query(  UniFi_Sites )
-    for site in sites_query:
-        unifi_site_query = session.query( UniFi_Sites ).filter_by(name=site.name, controller_key=unifi_controller_query.primary_key ).first()
-        link_unifi_site = session.query( Link_UniFi_Companies ).filter_by( unifi_sites_key=unifi_site_query.primary_key ).first()
-        company_key = 0
-        if hasattr(link_unifi_site, "primary_key"): company_key = link_unifi_site.companies_key
+
+
+
+    # TODO Change to for loop through sites that are "linked"
+    #sites_query = session.query(  UniFi_Sites )
+    #for site in sites_query:
+    #    unifi_site_query = session.query( UniFi_Sites ).filter_by(name=site.name, controller_key=unifi_controller_query.primary_key ).first()
+    #    link_unifi_site = session.query( Link_UniFi_Companies ).filter_by( unifi_sites_key=unifi_site_query.primary_key ).first()
+
+    link_unifi_sites = session.query( Link_UniFi_Companies )
+    for linked_site in link_unifi_sites:
+        company_key = linked_site.companies_key
+        site = session.query(  UniFi_Sites ).filter_by(primary_key=linked_site.unifi_sites_key).first()
         c.site_id = site.name
         unifi_devices_json = c.get_aps()
         for unifi_device in unifi_devices_json:
             if unifi_device['adopted'] == True and 'serial' in unifi_device:
-                db_obj = session.query( Devices ).filter_by(serial=unifi_device['serial'], manufacturer="Ubiquiti").first()
+                db_obj = session.query( Devices ).filter_by(serial=unifi_device['serial'], company_key=linked_site.companies_key).first()
                 if hasattr(db_obj, 'primary_key'):
                     channel_sync_device = {}
                     if db_obj.name != unifi_device['name']:
@@ -614,6 +854,15 @@ def sync_unifi_devices():
                             db_obj.ip_addresses = unifi_device['ip']
                             channel_sync_device['ipaddress'] = unifi_device['ip']
                             session.add(db_obj)
+                    # TODO need to update installed data if we get better information. I think the code below will always trigger an update. Need a better way to compare.
+                    # provisioned_at = None
+                    # if 'provisioned_at' in unifi_device:
+                    #     provisioned_at = datetime.fromtimestamp(unifi_device['provisioned_at'])
+                    # else:
+                    #     provisioned_at = datetime.utcnow()
+                    # if db_obj.install_date != provisioned_at:
+                    #     db_obj.install_date = provisioned_at
+                    #     channel_sync_device['install_date'] = provisioned_at
                     # add macs here
                     if db_obj.manufacturer != "Ubiquiti":
                         db_obj.manufacturer = "Ubiquiti"
@@ -639,6 +888,7 @@ def sync_unifi_devices():
                             channel_sync_device['macs'] = mac_list
                             session.add(macs_db_obj)
                     else:
+                        mac_list = []
                         macs_db_obj = Devices_Macs(
                             mac_addresses = unifi_device['mac'],
                             device_key = db_obj.primary_key,
@@ -648,19 +898,24 @@ def sync_unifi_devices():
                         session.add(macs_db_obj)
                     link_db_obj = session.query( Link_UniFi_Devices ).filter_by( device_key=db_obj.primary_key ).first()
                     if hasattr(link_db_obj, 'primary_key'):
-                        if link_db_obj.unifi_sites_key != unifi_site_query.primary_key:
-                            link_db_obj.unifi_sites_key = unifi_site_query.primary_key
+                        if link_db_obj.unifi_sites_key != site.primary_key:
+                            link_db_obj.unifi_sites_key = site.primary_key
                             session.add(link_db_obj)
                     else:
                         link_db_obj = Link_UniFi_Devices(
                             device_key = db_obj.primary_key,
-                            unifi_sites_key = unifi_site_query.primary_key
+                            unifi_sites_key = site.primary_key
                         )
                         session.add(link_db_obj)
                     if channel_sync_device: 
                         if db_obj.company_key != 0:
                             sync_channels(unifi_controller_query, db_obj, channel_sync_device)
                 else:
+                    provisioned_at = None
+                    if 'provisioned_at' in unifi_device:
+                        provisioned_at = datetime.fromtimestamp(unifi_device['provisioned_at'])
+                    else:
+                        provisioned_at = datetime.utcnow()
                     channel_sync_device = {}
                     db_obj = Devices(
                         name = unifi_device['name'],
@@ -668,7 +923,8 @@ def sync_unifi_devices():
                         ip_addresses = unifi_device['ip'],
                         manufacturer = "Ubiquiti",
                         model = unifi_device['model'],
-                        company_key = company_key
+                        company_key = company_key,
+                        install_date = provisioned_at
                     )
                     channel_sync_device['name'] = unifi_device['name']
                     channel_sync_device['serial'] = unifi_device['serial']
@@ -676,23 +932,24 @@ def sync_unifi_devices():
                     channel_sync_device['manufacturer'] = "Ubiquiti"
                     channel_sync_device['model'] = unifi_device['model']
                     channel_sync_device['company_key'] = company_key
-
+                    channel_sync_device['install_date'] = provisioned_at
 
                     session.add(db_obj)
                     session.flush()
                     session.refresh(db_obj)
                     mac_list = []
-                    macs_db_obj = Devices_Macs(
-                            mac_addresses = unifi_device['mac'],
-                            device_key = db_obj.primary_key,
-                    )
-                    mac_list.append(unifi_device['mac'])
-                    channel_sync_device['macs'] = mac_list
-                    session.add(macs_db_obj)
+                    if unifi_device['mac']:
+                        macs_db_obj = Devices_Macs(
+                                mac_addresses = unifi_device['mac'],
+                                device_key = db_obj.primary_key,
+                        )
+                        mac_list.append(unifi_device['mac'])
+                        channel_sync_device['macs'] = mac_list
+                        session.add(macs_db_obj)
 
                     link_db_obj = Link_UniFi_Devices(
                         device_key = db_obj.primary_key,
-                        unifi_sites_key = unifi_site_query.primary_key
+                        unifi_sites_key = site.primary_key
                     )
                     session.add(link_db_obj)
                     session.commit()
@@ -712,13 +969,14 @@ def update_autotask_last_sync():
         # TODO currently set to 4 hours, but that should be configurable
         if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > 4:
             _sync_autotask_companies(tenant)
-        if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > 24:
+        if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > sync_wait:
+            _sync_autotask_companies(tenant)
             _sync_autotask_ci_catagories()
             _sync_autotask_ci_types()
             _sync_autotask_products()
             sync_autotask_devices()
             _sync_autotask_contracts()
-            get_autotask_tickets_entity_information()
+            #get_autotask_tickets_entity_information()
     else:
         _sync_autotask_companies()
         _sync_autotask_ci_catagories()
@@ -726,7 +984,7 @@ def update_autotask_last_sync():
         _sync_autotask_products()
         sync_autotask_devices()
         _sync_autotask_contracts()
-        get_autotask_tickets_entity_information()
+        #get_autotask_tickets_entity_information()
 
 def get_autotask_tickets_field_value(name, lable):
     for field in tickets_entity_information_fields:
@@ -776,8 +1034,9 @@ def _sync_autotask_contracts():
         link_autotask_company = session.query( Link_Autotask_Companies ).filter_by( id=contract['companyID'],autotask_tenant_key=tenant.primary_key ).first()
         contract_db_obj = session.query( Autotask_Contracts ).filter_by( autotask_id=contract['id'], company_key=link_autotask_company.companies_key, autotask_tenant_key=tenant.primary_key ).first()
         if contract_db_obj:
+            # TODO Check for updates in Database
             print("check for updates in database")
-            sys.exit()
+            #sys.exit()
         else:
             db_obj = Autotask_Contracts(
                 autotask_id = contract['id'],
@@ -789,6 +1048,15 @@ def _sync_autotask_contracts():
             )
             session.add(db_obj)
             session.commit()
+
+def mac_list_from_autotask_ci(orginal_list):
+    mac_return = []
+    if orginal_list:
+        for mac in orginal_list.replace(" ", "").split(","):
+            if len(mac) > 8 and "[" not in mac and "]" not in mac and "," not in mac:
+                if mac not in mac_return:
+                    mac_return.append(mac)
+    return mac_return
 
 def sync_autotask_devices():
     print(" - Syncing Devices to Autotask")
@@ -806,7 +1074,12 @@ def sync_autotask_devices():
 
             for ci in cis:
                 manufacturer, model = get_autotask_ci_manufacturer_model(ci)
-                device_db_obj = session.query( Devices ).filter_by(manufacturer=manufacturer, serial=ci['serialNumber']).first()
+
+                device_db_obj = session.query( Devices ).filter_by(company_key=company.primary_key, serial=ci['serialNumber']).first()
+                if device_db_obj is None:
+                    print(device_db_obj)
+                    print(ci)
+                    #sys.exit()
                 autotask_product = None
                 if ci['productID']:
                     autotask_product = session.query( Autotask_Products ).filter_by(id=ci['productID']).first()
@@ -841,30 +1114,32 @@ def sync_autotask_devices():
                                 channel_sync_device['model'] =  model
                                 session.add(device_db_obj)
 
-                            macs_db_obj = session.query( Devices_Macs ).filter_by(device_key=device_db_obj.primary_key ).all()
-                            if ci['rmmDeviceAuditMacAddress']:
-                                if len(macs_db_obj) > 0:
+                            for ci_mac in mac_list_from_autotask_ci(ci['rmmDeviceAuditMacAddress']):
+                                macs_db_obj = session.query( Devices_Macs ).filter_by(device_key=device_db_obj.primary_key ).all()
+                                if macs_db_obj:
                                     mac_list = []
                                     found = 0
                                     for mac in macs_db_obj:
-                                        if mac.mac_addresses == ci['rmmDeviceAuditMacAddress']: found = 1
+                                        if mac.mac_addresses == ci_mac: found = 1
                                     
                                     if found == 0:
+                                        print("Didn't find the mac")
                                         macs_db_obj = Devices_Macs(
-                                            mac_addresses = (ci['rmmDeviceAuditMacAddress']).strip(),
+                                            mac_addresses = (ci_mac).strip(),
                                             device_key = device_db_obj.primary_key
                                         )
-                                        mac_list.append((ci['rmmDeviceAuditMacAddress']).strip())
+                                        mac_list.append((ci_mac).strip())
                                         channel_sync_device['macs'] = mac_list
                                         session.add(macs_db_obj)
                                 else:
-                                    macs_db_obj = Devices_Macs(
-                                        mac_addresses = (ci['rmmDeviceAuditMacAddress']).strip(),
-                                        device_key = device_db_obj.primary_key,
+                                    print("Not in the database")
+                                    macs_db = Devices_Macs(
+                                        mac_addresses = (ci_mac).strip(),
+                                        device_key = device_db_obj.primary_key
                                     )
-                                    mac_list.append((ci['rmmDeviceAuditMacAddress']).strip())
+                                    mac_list.append((ci_mac).strip())
                                     channel_sync_device['macs'] = mac_list
-                                    session.add(macs_db_obj)
+                                    session.add(macs_db)
                             link_db_obj = session.query( Link_Autotask_Devices ).filter_by( device_key=device_db_obj.primary_key ).first()
                             if hasattr(link_db_obj, 'primary_key'):
                                 if link_db_obj.autotask_tenant_key != tenant.primary_key:
@@ -888,19 +1163,20 @@ def sync_autotask_devices():
                             company_key = company.primary_key
                         )
                         if hasattr(autotask_product, "manufacturerName"): db_obj.manufacturer = autotask_product.manufacturerName
-                        if hasattr(autotask_product, "manufacturerProductName"): db_obj.manufacturer = autotask_product.manufacturerProductName
+                        if hasattr(autotask_product, "manufacturerProductName"): db_obj.model = autotask_product.manufacturerProductName
 
                         session.add(db_obj)
                         session.flush()
                         session.refresh(db_obj)
                         
+
+                        print("About to add Macs")
                         # TODO Add a place to lookup client UDF for Mac addresses
-                        if ci['rmmDeviceAuditMacAddress']:
-                            for mac in ci['rmmDeviceAuditMacAddress'].split(","):
+                        for ci_mac in mac_list_from_autotask_ci(ci['rmmDeviceAuditMacAddress']):
                                 macs_db_obj = None
-                                if mac:
+                                if ci_mac:
                                     macs_db_obj = Devices_Macs(
-                                        mac_addresses = mac.strip(),
+                                        mac_addresses = ci_mac,
                                         device_key = db_obj.primary_key
                                     )
                                     session.add(macs_db_obj)
@@ -908,7 +1184,8 @@ def sync_autotask_devices():
                         link_db_obj = Link_Autotask_Devices(
                             device_key = db_obj.primary_key,
                             autotask_tenant_key = tenant.primary_key,
-                            company_key = company.primary_key
+                            company_key = company.primary_key,
+                            autotask_ci_id = ci['id']
                         )
                         session.add(link_db_obj)
                         session.flush()
@@ -939,7 +1216,7 @@ def _sync_autotask_ci_types():
                             value = value['value'],
                             label = value['label']
                         )
-                    session.add(db_obj)
+                        session.add(db_obj)
     session.commit()
 
 def _sync_autotask_ci_catagories():
@@ -994,16 +1271,47 @@ def _sync_autotask_products():
             session.add(db_obj)
     session.commit()
 
+# TODO The way this is written, it might skip the first unifi sync because unifi was not setup at first. We need to trigger a company sync after unifi controller is added to get the autotask unfi site link up
+def link_autotask_unifi(autotask_company, company_db_obj):
+    # TODO this needs to be configurable. If we are going to keep it in Autotask, then we need to add a UDF for the UniFi Controllers url
+    unifi_site_name = None
+    unifi_tenant = session.query( UniFi_Controllers ).filter_by(host=config.UnifiHost).first()
+
+    if unifi_tenant:
+        for udf in autotask_company['userDefinedFields']:
+            if udf['name'] == 'Unifi Site ID':
+                unifi_site_name = udf['value']
+                break
+        if unifi_site_name:
+            sites_query = session.query(  UniFi_Sites ).filter_by(name=unifi_site_name, controller_key=unifi_tenant.primary_key ).first()
+            if hasattr(sites_query, 'primary_key'):
+                # TODO Need to check for more than 1 site
+                link_unifi_sites_db_obj = session.query( Link_UniFi_Companies ).filter_by(companies_key=company_db_obj.primary_key ).first()
+                if hasattr(link_unifi_sites_db_obj, 'primary_key'):
+                    if link_unifi_sites_db_obj.unifi_sites_key != sites_query.primary_key:
+                        link_unifi_sites_db_obj.unifi_sites_key = sites_query.primary_key
+                        session.add(link_unifi_sites_db_obj)
+                else:
+                    link_unifi_sites_db_obj = Link_UniFi_Companies(
+                        companies_key = company_db_obj.primary_key,
+                        unifi_sites_key = sites_query.primary_key,
+                    )
+                    session.add(link_unifi_sites_db_obj)
+                    session.flush()
+                    session.refresh(link_unifi_sites_db_obj)
+
 def _sync_autotask_companies(tenant=None):
     print(" - Sync Autotask Companies")
     if tenant is None:
-        tenant = Autotask_Tenants(
-            host = config.atHost,
-            api_user = config.atUsername
-        )
-        session.add(tenant)
-        session.flush()
-        session.refresh(tenant)
+        tenant = session.query( Autotask_Tenants ).filter_by(api_user=config.atUsername).first()
+        if not hasattr(tenant, 'primary_key'):
+            tenant = Autotask_Tenants(
+                host = config.atHost,
+                api_user = config.atUsername
+            )
+            session.add(tenant)
+            session.flush()
+            session.refresh(tenant)
 
     # TODO change this to for loop all of the tenants of Autotask
     # TODO add include_fields here to only give the data we are asking for. Currently that is just id, companyName, companyNumber
@@ -1041,31 +1349,7 @@ def _sync_autotask_companies(tenant=None):
             session.add(link_autotask_companies_db_obj)
             session.commit()
 
-        # TODO this needs to be configurable. If we are going to keep it in Autotask, then we need to add a UDF for the UniFi Controllers url
-        unifi_site_name = None
-        unifi_tenant = session.query( UniFi_Controllers ).filter_by(host=config.UnifiHost).first()
-
-        for udf in autotask_company['userDefinedFields']:
-            if udf['name'] == 'Unifi Site ID':
-                unifi_site_name = udf['value']
-                break
-        if unifi_site_name:
-            sites_query = session.query(  UniFi_Sites ).filter_by(name=unifi_site_name, controller_key = unifi_tenant.primary_key ).first()
-            if hasattr(sites_query, 'primary_key'):
-                # TODO Need to check for more than 1 site
-                link_unifi_sites_db_obj = session.query( Link_UniFi_Companies ).filter_by(companies_key=autotask_company['id']).first()
-                if hasattr(link_unifi_sites_db_obj, 'primary_key'):
-                    if link_unifi_sites_db_obj.unifi_sites_key != sites_query.primary_key:
-                        link_unifi_sites_db_obj.unifi_sites_key = sites_query.primary_key
-                        session.add(link_unifi_sites_db_obj)
-                else:
-                    link_unifi_sites_db_obj = Link_UniFi_Companies(
-                        companies_key = company_db_obj.primary_key,
-                        unifi_sites_key = sites_query.primary_key,
-                    )
-                    session.add(link_unifi_sites_db_obj)
-                    session.flush()
-                    session.refresh(link_unifi_sites_db_obj)
+        link_autotask_unifi(autotask_company, company_db_obj)
  
     tenant.last_full_sync = datetime.now()
     session.commit()
@@ -1077,5 +1361,3 @@ def get_autotask_companies():
 
 if __name__ == "__main__":
     main()
-
-

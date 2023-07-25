@@ -14,6 +14,7 @@ class Devices(Base):
     manufacturer = Column(String)
     model = Column(String)
     company_key: Mapped[int] = mapped_column(ForeignKey("companies.primary_key"))
+    install_date = Column(DateTime)
 
     def __repr__(self):
         return f"Devices(id={self.primary_key}, name='{self.name}', serial='{self.serial}', ip_addresses='{self.ip_addresses}', manufacturer='{self.manufacturer}', model='{self.model}')"

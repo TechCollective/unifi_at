@@ -13,13 +13,19 @@ import pyautotask
 #config file within the same directory
 import config
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, null
+from sqlalchemy.orm import sessionmaker, aliased
 from models import *
 import dateutil.parser
 import csv
 
-# TODO Function to show all sites that do not have a link to autotask
+# TODO Have script work from fresh start. Currently script doesn't grab all the information it needs to make a full run from fresh start. 
+    # TODO Just noticed that link_unifi_sites is empty after fresh start
+
+# TODO rewrite script to allow arguments:
+    # TODO Override sync schedule
+    # TODO run just 1 part like sync AT companies
+    # TODO all to run everything but on just 1 company.
 
 # TODO Add to pyunifi - check schedule - This API shows all devices on the schedule and when it happens
 # GET /api/s/yna7d4u9/rest/scheduletask?action=upgrade
@@ -64,8 +70,7 @@ def main():
     # TODO Sync within Autotask. I'm not sure if rmmDeviceAuditHostname syncs back to referenceTitle, if not, we should. Maybe sync "rmmDeviceAuditDescription" to description
     # TODO Sync UniFi clients both ways. If a client is defined in UniFi make sure it has a CI in Autotask. All Autotask CI's should be created in UniFi.
     unifi_alerts_all()
-
-    #get_autotask_tickets_entity_information()
+    
 
 def sync_channels(channel, db_obj, channel_sync_device=None):
     if channel.__class__.__name__ != "UniFi_Controllers": 
@@ -172,7 +177,6 @@ def update_unifi_last_sync():
     print("Unifi Sync")
     tenant = session.query( UniFi_Controllers ).filter_by(host=config.UnifiHost).first()
     if tenant:
-        # TODO currently set to 24 hours, but that should be configurable
         if (datetime.now() - tenant.last_full_sync).total_seconds() / 3600 > sync_wait:
             _sync_unifi_sites(tenant)
             sync_unifi_devices()
@@ -181,6 +185,22 @@ def update_unifi_last_sync():
         _sync_unifi_sites()
         sync_unifi_devices()
         sync_unifi_clients()
+    unsynced_unifi_sites()
+
+
+def unsynced_unifi_sites():
+    print("Show unsynced unifi sites")
+    
+    link_unifi_sites = aliased(Link_UniFi_Companies)
+    query = session.query( UniFi_Sites ).outerjoin(
+        link_unifi_sites, UniFi_Sites.primary_key == link_unifi_sites.unifi_sites_key
+    ).filter(link_unifi_sites.primary_key.is_(null()))
+
+    unsynced_unifi_sites = query.all()
+    # TODO make it put this list in alphabetical order
+    for site in unsynced_unifi_sites:
+        print(" - " + site.desc + " Please add site id to Autotask. Site ID: " + site.name)
+
 
 def get_unifi_alert_config(alert_key):
     # TODO need error checking here. Make sure the file is formated correctly
@@ -511,6 +531,7 @@ def unifi_alerts():
     # TODO Check for multiple events in the same day.
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
+    # TODO Move csv file to database. When new keys are detected, add it to the database
 
     link_unifi_sites = session.query( Link_UniFi_Companies )
     for linked_site in link_unifi_sites:

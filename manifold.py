@@ -19,6 +19,21 @@ from models import *
 import dateutil.parser
 import csv
 
+# TODO Function to show all sites that do not have a link to autotask
+
+# TODO Add to pyunifi - check schedule - This API shows all devices on the schedule and when it happens
+# GET /api/s/yna7d4u9/rest/scheduletask?action=upgrade
+# TODO Modify Schedule
+# PUT /api/s/yna7d4u9/rest/scheduletask/64c128af5749482961789c09
+# example request {"cron_expr":"0 1 * * 6","name":"update_scedule","site_id":"64469121a685b402258122fd","action":"upgrade","_id":"64c128af5749482961789c09","upgrade_targets":[{"mac":"b4:fb:e4:1f:aa:0a"},{"mac":"fc:ec:da:b9:68:f9"},{"mac":"b4:fb:e4:87:ed:cd"},{"mac":"fc:ec:da:3d:f5:f2"},{"mac":"18:e8:29:2b:88:2e"},{"mac":"fc:ec:da:e5:e3:f2"}]}
+# example response {"meta":{"rc":"ok"},"data":[{"upgrade_targets":[{"mac":"b4:fb:e4:1f:aa:0a"},{"mac":"fc:ec:da:b9:68:f9"},{"mac":"b4:fb:e4:87:ed:cd"},{"mac":"fc:ec:da:3d:f5:f2"},{"mac":"18:e8:29:2b:88:2e"},{"mac":"fc:ec:da:e5:e3:f2"}],"cron_expr":"0 1 * * 6","name":"update_scedule","site_id":"64469121a685b402258122fd","action":"upgrade","_id":"64c128af5749482961789c09"}]}
+# DELETE /api/s/yna7d4u9/rest/scheduletask/64c128af5749482961789c09
+# POST https://btcunifi.com:8443/api/s/yna7d4u9/rest/scheduletask
+# {"cron_expr":"0 1 * * 6","name":"schedule","action":"upgrade","upgrade_targets":[{"mac":"18:e8:29:2b:88:2e"},{"mac":"fc:ec:da:3d:f5:f2"},{"mac":"fc:ec:da:e5:e3:f2"},{"mac":"b4:fb:e4:87:ed:cd"},{"mac":"b4:fb:e4:1f:aa:0a"},{"mac":"fc:ec:da:b9:68:f9"}]}
+# So if we wanted to have a set schedule for some clients over others, this is how w can do it
+
+# TODO check client list for macaddress assoicated with vendor that make network gear to target them for replacement
+
 # TODO Move this to the unifi_controllers database
 c = pyunifi.controller.Controller(config.UnifiHost, config.UnifiUsername, config.UnifiPassword, config.UnifiPort, "v5")
 # TODO Move this to the autotask_tenants database
@@ -213,7 +228,6 @@ def check_unifi_site_for_autotask_contract(site):
         return True
 
 def unifi_lost_contact(site,device):
-    print("     - " + site.desc + " Lost Contact")
     # TODO Might need to actually look at the device to assoicate it with the 100% right event
     params = create_ticket_params_from_unifi_warning("EVT_AP_Lost_Contact")
     linked_site = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
@@ -224,14 +238,18 @@ def unifi_lost_contact(site,device):
         device = session.query( Devices ).filter_by(company_key=linked_site.companies_key, primary_key=device_mac.device_key ).first()
         if device:
             linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device.primary_key,company_key=linked_site.companies_key).first()
-            params.configurationItemID = linked_autotask_device.autotask_ci_id
-            break
-    existing_ticket = check_autotask_existing_warning_ticket(params)
+            if linked_autotask_device:
+                params.configurationItemID = linked_autotask_device.autotask_ci_id
+                break
+            else:
+                # TODO create device
+                return None
+    existing_ticket = check_autotask_existing_ticket(params)
     if existing_ticket:
         # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
         pass
     else:
-        print("    - Create the Ticket")
+        print("   - " + site.desc + " Lost Contact - Creating Ticket")
         at._api_write("Tickets", params.to_dict())
 
 def unifi_device_status():
@@ -241,7 +259,6 @@ def unifi_device_status():
     # TODO change sites_query to only look up for this controller
     sites_query = session.query(  UniFi_Sites )
     for site in sites_query:
-        print("   - " + site.desc)
         unifi_site_query = session.query( UniFi_Sites ).filter_by(name=site.name, controller_key=unifi_controller_query.primary_key ).first()
         link_unifi_site = session.query( Link_UniFi_Companies ).filter_by( unifi_sites_key=unifi_site_query.primary_key ).first()
         company_key = 0
@@ -276,21 +293,21 @@ def archive_unifi_alert(alert_id):
 	params = {'_id': alert_id}
 	return c._run_command('archive-alarm', params, mgr="evtmgr")
 
-def check_autotask_existing_ticket(m_alert, event_config):
-    print(event_config)
-    filter_fields = ""
+# def check_autotask_existing_ticket(m_alert, event_config):
+#     print(event_config)
+#     filter_fields = ""
 
-    if hasattr(m_alert, "at_id"):
-        filter_fields = at.create_filter("eq", "configurationItemID", str(m_alert.device_from.at_id))
-    if filter_fields == "":
-        filter_fields = at.create_filter("eq", "subIssueType", get_autotask_tickets_field_value("subIssueType",event_config['Subissue type']))
-    else:
-        filter_fields = filter_fields + "," + at.create_filter("eq", "subIssueType", get_autotask_tickets_field_value("subIssueType",event_config['Subissue type']))
-    filter_fields = filter_fields + "," + at.create_filter("eq", "companyID", str(m_alert.at_company_id))
-    filter_fields = filter_fields + "," + at.create_filter("noteq", "status", get_autotask_tickets_field_value("status", 'Complete') )
-    return at.create_query("tickets", filter_fields)
+#     if hasattr(m_alert, "at_id"):
+#         filter_fields = at.create_filter("eq", "configurationItemID", str(m_alert.device_from.at_id))
+#     if filter_fields == "":
+#         filter_fields = at.create_filter("eq", "subIssueType", get_autotask_tickets_field_value("subIssueType",event_config['Subissue type']))
+#     else:
+#         filter_fields = filter_fields + "," + at.create_filter("eq", "subIssueType", get_autotask_tickets_field_value("subIssueType",event_config['Subissue type']))
+#     filter_fields = filter_fields + "," + at.create_filter("eq", "companyID", str(m_alert.at_company_id))
+#     filter_fields = filter_fields + "," + at.create_filter("noteq", "status", get_autotask_tickets_field_value("status", 'Complete') )
+#     return at.create_query("tickets", filter_fields)
 
-def create_unifi_alert_ticket(m_alert, alert_config):
+def create_unifi_alert_ticket(alert):
     ticket_exsiting = check_autotask_existing_ticket(m_alert, alert_config)
     print(ticket_exsiting)
     #TODO maybe add an updated note
@@ -363,16 +380,24 @@ def check_unifi_alert_for_relevants(alert, site):
         return False
     
     if "Lost_Contact" in alert['key']:
-        if c.get_device_stat(alert_device_mac)['state'] == 1:
-            print("          - Device state is active. Clearing alert.")
+        device = None
+        try: 
+           device = c.get_device_stat(alert_device_mac) 
+        except:
             archive_unifi_alert(alert['_id'])
-            return False
+        else:
+            if device['state'] == 1:
+                print("          - Device state is active. Clearing alert.")
+                archive_unifi_alert(alert['_id'])
+                return False
     if "EVT_GW_WANTransition" in  alert['key']:
         print(site.desc)
         gateway = ((((alert['msg']).split()[0]).replace('Gateway','')).replace('[', '')).replace(']','')
         if c.get_device_stat(gateway)['state'] == 1:
             archive_unifi_alert(alert['_id'])
             return False
+    # TODO if STP, check the STP device to see if it's still an issue.
+    return True
 
 def get_unifi_alert_device(alert):
     mac = None
@@ -429,8 +454,10 @@ def get_autotask_ci_from_unifi_alert(alert):
             if hasattr(link_autotask_device, "primary_key"):
                 return link_autotask_device.autotask_ci_id
             else:    
+                print(alert)
                 print("Missing device")
-                sys.exit()
+                # TODO need to add function to add missing devices
+                #sys.exit()
         else:
             # TODO need to add a fuction to add the deice to autotask if it's missing
             print("---------------------> Need to add device")
@@ -441,9 +468,11 @@ def get_autotask_ci_from_unifi_alert(alert):
 def create_ticket_params_from_unifi_alert(alert):
     alert_config = get_unifi_alert_config(alert['key'])
     if alert_config is None:
+        print(alert)
         print("          - No config for this alert. Skipping alert.")
         sys.exit()
-    if alert_config['Create Ticket']:
+    
+    if alert_config['Create Ticket'] == "TRUE":
         params = Autotask_Ticket_Params()
         params.title = alert_config['Ticket Title']
         params.issueType = get_autotask_tickets_field_value("issueType", alert_config['Issue type'])
@@ -453,7 +482,9 @@ def create_ticket_params_from_unifi_alert(alert):
         params.source = get_autotask_tickets_field_value("source", 'Monitoring Alert')
         alert_time = datetime.fromtimestamp(alert['time']/1000).strftime("%Y-%m-%d, %H:%M")
         params.configurationItemID = get_autotask_ci_from_unifi_alert(alert)
-        params.description = 'Message from the UniFi Controller is: ' + alert_time + " " + alert['msg']
+        params.priority = get_autotask_tickets_field_value("priority", "Medium" )
+        params.description = alert_config['Ticket Description']
+        params.description = params.description + '\n\nMessage from the UniFi Controller is: ' + alert_time + " " + alert['msg']
         return params
 
 def create_ticket_params_from_unifi_warning(key):
@@ -484,7 +515,6 @@ def unifi_alerts():
     link_unifi_sites = session.query( Link_UniFi_Companies )
     for linked_site in link_unifi_sites:
         site = session.query(  UniFi_Sites ).filter_by(primary_key=linked_site.unifi_sites_key).first()
-        print("   - " + site.desc)
         company_key = 0
         if hasattr(linked_site, "primary_key"): 
             company_key = linked_site.companies_key
@@ -493,25 +523,20 @@ def unifi_alerts():
                 c.site_id = site.name
                 alerts = c.get_alerts_unarchived()
                 for alert in alerts:
+                    print("   - " + site.desc + " " + alert['msg'])
                     params = create_ticket_params_from_unifi_alert(alert)
                     if params:
+                        print("   - " + site.desc)
                         params.companyID = link_autotask_company.id
-
-                    #m_alert = Alerts.from_unifi_dict(alert)
-                    #m_alert.at_company_id = link_autotask_company.id
-                    #m_alert.device_db, m_alert.mac = get_unifi_alert_device(alert)
-                    #alert_config = get_unifi_alert_config(m_alert.unifi_alert_key)
-                    #if alert_config is None:
-                    #    print("          - No config for this alert. Skipping alert.")
-                    #    sys.exit()
-                    #if alert_config['Create Ticket']:
-                    
                         if check_unifi_alert_for_relevants(alert, site):
-                            reply = create_unifi_alert_ticket(m_alert, alert_config)
-                            # TODO check the reply and respond to errors
-                            sys.exit()
-                            if reply != []:
-                                archive_alert(m_alert.unifi_alert_id)
+                            existing_ticket = check_autotask_existing_ticket(params)
+                            if existing_ticket:
+                                # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
+                                pass
+                            else:
+                                print("    - Create the Ticket " + alert['key'])
+                                at._api_write("Tickets", params.to_dict())
+                                # TODO check the reply and respond to errors
 
 # TODO Move to pyunifi
 def _api_url_v2():
@@ -541,40 +566,56 @@ def unifi_system_logs():
 
         if syslog['key'] == "DEVICE_RECONNECTED_WITH_DOWNLINKS":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "DEVICE_UNREACHABLE_WITH_DOWNLINKS":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "DEVICE_RECONNECTED_SEVERAL_TIMES":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "DEVICE_RECONNECTED":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "DEVICE_UNREACHABLE":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "ISP_HIGH_LATENCY":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "ISP_PACKET_LOSS":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "CLIENT_IP_CONFLICT":
             print(syslog['key'] + "-" + syslog['message'])
             print(syslog)
+            sys.exit()
         elif syslog['key'] == "CLIENT_IP_CONFLICT_BULK":
             print(syslog['key'] + "-" + syslog['message'])
             print(syslog)
+            sys.exit()
         elif syslog['key'] == "DEVICE_DISCOVERED" or syslog['key'] == "DEVICE_ADOPTED":
             pass
         elif syslog['key'] == "PORT_TRANSMISSION_ERRORS":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "NETWORK_FAILED_OVER_TO_BACKUP_LTE":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "RADIUS_SERVER_ISSUE":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "NETWORK_RETURNED_FROM_BACKUP_WAN":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "NETWORK_WAN_FAILED_MULTIPLE_TIMES":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "ULTE_WARNING_LIMIT_EXCEEDED":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         elif syslog['key'] == "NETWORK_WAN_FAILED":
             print(syslog['key'] + "-" + syslog['message'])
+            sys.exit()
         else:
             print(syslog['key'])
             print(syslog)
@@ -590,7 +631,7 @@ def unifi_warning_has_wlan_overrides(site,warning):
             print(device['name'] + " " + str(device['wlan_overrides']))
     sys.exit()
 
-def check_autotask_existing_warning_ticket(params):
+def check_autotask_existing_ticket(params):
     complete = get_autotask_tickets_field_value("status", "Complete")
 
     filter_fields = at.create_filter("eq", "companyID", str(params.companyID))
@@ -599,7 +640,14 @@ def check_autotask_existing_warning_ticket(params):
     filter_fields = filter_fields + "," + at.create_filter("eq", "subIssueType", str(params.subIssueType ))
     if params.configurationItemID != None:
         filter_fields = filter_fields + "," + at.create_filter("eq","configurationItemID", str(params.configurationItemID ))
-    existing_ticket = at.create_query("tickets", filter_fields)
+    try:
+        existing_ticket = at.create_query("tickets", filter_fields)
+    except:
+        print("We have an error in the filter field")
+        print(filter_fields)
+        print(params.to_dict())
+        sys.exit()
+
     if existing_ticket:
         return existing_ticket
     else:
@@ -616,10 +664,13 @@ def unifi_lte_subscription_check_required_for(site, key, warning):
         device = session.query( Devices ).filter_by(company_key=linked_site.companies_key, primary_key=device_mac.device_key ).first()
         if device:
             linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device.primary_key,company_key=linked_site.companies_key).first()
+            # TODO Test the code below. if it works, remove the line above and the device = line above that.
+            #linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device_mac.device_key,company_key=linked_site.companies_key).first()
+            
             params.configurationItemID = linked_autotask_device.autotask_ci_id
             break
     
-    existing_ticket = check_autotask_existing_warning_ticket(params)
+    existing_ticket = check_autotask_existing_ticket(params)
     if existing_ticket:
         # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
         pass
@@ -631,6 +682,26 @@ def unifi_lte_subscription_check_required_for(site, key, warning):
 def unifi_widget_warnings():
     return c._api_read("stat/widget/warnings")
 
+def unifi_eol(site, key, warning):
+    print("     - " + site.desc + " " + key + " " + str(warning))
+    params = create_ticket_params_from_unifi_warning(key)
+    linked_site = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
+    autotask_linked_company = session.query( Link_Autotask_Companies ).filter_by(companies_key=linked_site.companies_key).first()
+    params.companyID = autotask_linked_company.id
+    unifi_devices = c.get_aps()
+    for unifi_device in unifi_devices:
+        if unifi_device['model_in_eol']:
+            device_mac = session.query( Devices_Macs ).filter_by(mac_addresses=unifi_device['mac']).first()
+            linked_autotask_device = session.query( Link_Autotask_Devices ).filter_by(device_key=device_mac.device_key,company_key=linked_site.companies_key).first()
+            params.configurationItemID = linked_autotask_device.autotask_ci_id
+            existing_ticket = check_autotask_existing_ticket(params)
+            if existing_ticket:
+                # TODO Might add a note to the ticket. Maybe remove the last note and add a new one that had the lenght of time this has been detected.
+                pass
+            else:
+                print("    - Create the Ticket")
+                at._api_write("Tickets", params.to_dict())
+
 # This could probably run once a day. Maybe once a week
 def check_unifi_warnings():
     # TODO should only run once a day
@@ -639,7 +710,6 @@ def check_unifi_warnings():
     # TODO change sites_query to only look up for this controller
     sites_query = session.query(  UniFi_Sites )
     for site in sites_query:
-        print("   - Site: " + site.desc)
         c.site_id = site.name
         link_unifi_company = session.query( Link_UniFi_Companies ).filter_by(unifi_sites_key=site.primary_key  ).first()
         if hasattr(link_unifi_company, "companies_key"):
@@ -654,7 +724,7 @@ def check_unifi_warnings():
                             # TODO Need to find the device and create a ticket based with that device as a CI.
                             # TODO Maybe check if there is a schedule and autotmaticly put it in the schedule
                             print("    - " + site.desc + " " + key + " " + str(warning))
-                            sys.exit()
+                            #sys.exit()
                     # TODO Make active once we have an ignor list
                     if key == 'has_wlan_overrides':
                         if warning == True:
@@ -688,12 +758,7 @@ def check_unifi_warnings():
                             sys.exit()
                     if key == 'eol_device_count':
                         if warning > 0:
-                            print("    - " + site.desc + " " + key + " " + str(warning))
-                            unifi_devices = c.get_aps()
-                            for unifi_device in unifi_devices:
-                                if unifi_device['model_in_eol']:
-                                    print("      - " + site.desc + " " + unifi_device['name'] + " - " + unifi_device['mac'] + " - " + str(unifi_device['model_in_eol']))
-                                    print("      - TODO Create fuction to create ticket")
+                            unifi_eol(site, key, warning)
                     if key == 'lts_device_count':
                         if warning > 0:
                             print("    - " + site.desc + " " + key + " " + str(warning))
@@ -821,7 +886,7 @@ def get_unifi_devices_basic():
     return c._api_read("stat/device-basic/")
 
 def sync_unifi_devices():
-    # TODO Add a check for EOL devices
+    # TODO I think we can get almost all alerts at this point. EOL, Unsupport LTE issues, lost connections. I think everything comes from here.
     print(" - Syncing UniFi Devices")
     unifi_controller_query = session.query( UniFi_Controllers ).filter_by(host=c.host ).first()
     # TODO change sites_query to only look up for this controller
@@ -1361,3 +1426,9 @@ def get_autotask_companies():
 
 if __name__ == "__main__":
     main()
+
+
+# c.site_id = "wmpefkoh"
+# for device in c.get_aps():
+#     if device['name'] == "USG":
+#         print(device)
